@@ -1,6 +1,7 @@
-package irc
+package main
 
 import (
+	"fmt"
 	"net"
 	"bufio"
 
@@ -70,6 +71,12 @@ func NewIRC(address string, debug bool) *IRC {
 
 // * Private functions
 
+func (irc *IRC) handleErr(err error) {
+	if err != nil {
+		irc.errChannel <- err
+	}
+}
+
 // reportErrors should be run in a goroutine.
 func (irc *IRC) reportErrors() {
 	for {
@@ -88,13 +95,9 @@ func (irc *IRC) receiveData() {
 	for {
 		select {
 		default:
-			data := make([]byte, 4096)
-			_, err := irc.connReader.Read(data)
-			if err != nil {
-				irc.errChannel <- err
-			}
-
-			irc.p.ParseChunk(data)
+			input, err := irc.connReader.ReadString('\n')
+			irc.handleErr(err)
+			irc.p.ParseChunk(input)
 
 		case <-irc.stopChannel:
 			return
@@ -111,8 +114,48 @@ func (irc *IRC) watchStop() {
 
 // * Public functions
 
+// ** Utilities
+
+// WatchMessages returns a read-only version of the internal
+// message channel to ensure no outside tampering
+func (irc *IRC) WatchMessages() <-chan parser.Message {
+	return irc.msgChannel
+}
+
+// WatchErrors returns a read-only channel to make sure
+// errors can be watched for externally
+func (irc *IRC) WatchErrors() <-chan error {
+	return irc.errChannel
+}
+
+// ** Actions
+
 // Login sends the NICK message followed by USER.
 // hopefully one day I can implement passwords n stuff
 func (irc *IRC) Login(nickname, fullname, username string) {
+	irc.Nickname = nickname
+	irc.Fullname = fullname
+	irc.Username = username
 
+	_, err := fmt.Fprintf(irc.connWriter, "NICK %s\r\n", nickname)
+	irc.handleErr(err)
+
+	_, err = fmt.Fprintf(irc.connWriter, "USER %s 0 * :%s\r\n", username, fullname)
+	irc.handleErr(err)
+
+	irc.connWriter.Flush()
+}
+
+// JoinChannel sends the JOIN message to get into a channel
+func (irc *IRC) JoinChannel(channel string) {
+	_, err := fmt.Fprintf(irc.connWriter, "JOIN %s\r\n", channel)
+	irc.handleErr(err)
+	irc.connWriter.Flush()
+}
+
+// LeaveChannel sends the PART message to leave a channel
+func (irc *IRC) LeaveChannel(channel string) {
+	_, err := fmt.Fprintf(irc.connWriter, "PART %s\r\n", channel)
+	irc.handleErr(err)
+	irc.connWriter.Flush()
 }

@@ -34,12 +34,12 @@ func NewParser(output chan<- Message) *Parser {
 // ParseChunk takes a chunk of bytes from a socket probably
 // and then tries to piece them together and then send them
 // off to another channel
-func (p *Parser) ParseChunk(chunk []byte) {
-	strChunk := string(chunk)
-	strs := strings.SplitAfter(strChunk, "\r\n")
+func (p *Parser) ParseChunk(chunk string) {
+	strs := strings.SplitAfter(chunk, "\r\n")
 
 	for _, message := range strs {
-		var finalMsg string
+		var finalMsg = message
+
 		if p.msgBuffer != "" {
 			finalMsg = message + p.msgBuffer
 			bgRed.Printf("Msgbuffer used: '%s' + '%s'\n", finalMsg, p.msgBuffer)
@@ -59,6 +59,9 @@ func (p *Parser) ParseChunk(chunk []byte) {
 func (p *Parser) parseString() {
 	for {
 		msg := <-p.msgChannel
+		if msg == "" {
+			continue
+		}
 		msgStruct := Message {}
 
 		parts := strings.Split(msg, " ")
@@ -72,10 +75,7 @@ func (p *Parser) parseString() {
 				msgStruct.Source = part
 			} else if part[0] == ':' { // final parameter marked by ':'
 				// TODO: possibly turn into string builder for ULTRA SPEEDUP
-				finalParam := ""
-				for i := index; i < len(parts); i++ {
-					finalParam += parts[i]
-				}
+				finalParam := strings.Join(parts[index:], " ")
 				msgStruct.Parameters = append(msgStruct.Parameters, finalParam)
 				break
 			} else { // either a command or normal param
